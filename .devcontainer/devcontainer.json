@@ -1,12 +1,15 @@
 {
-    "name": "Rust Dev",
-    "image": "mcr.microsoft.com/devcontainers/rust:1",
-    "features": {},
-    "postCreateCommand": "rustup update && cargo install --path .",
-    "customizations": {
-      "vscode": {
-        "extensions": ["rust-lang.rust-analyzer"]
-      }
+  "name": "Rust Dev",
+  "image": "mcr.microsoft.com/devcontainers/rust:1",
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  },
+  "postCreateCommand": "rustup update",
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer"]
     }
   }
-  
+}
