@@ -1,0 +1,26 @@
+# Compiled files
+/target/
+**/*.rs.bk
+
+# Backup and IDE files
+**/*.swp
+**/*.swo
+**/*.bak
+*.tmp
+
+# IntelliJ / JetBrains
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# Mac and Linux
+.DS_Store
+*.log
+
+# Binaries
+*.exe
+*.out
+*.o
+
