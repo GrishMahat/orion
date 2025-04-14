@@ -1,0 +1,73 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: orion-linux
+            asset_name: orion-linux.tar.gz
+          - os: windows-latest
+            artifact_name: orion-windows
+            asset_name: orion-windows.zip
+          - os: macos-latest
+            artifact_name: orion-macos
+            asset_name: orion-macos.tar.gz
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          profile: minimal
+
+      - name: Build all crates
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --all
+
+      - name: Package (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p dist/bin
+          cp target/release/background dist/bin/
+          cp target/release/popup_ui dist/bin/
+          cp target/release/settings_app dist/bin/
+          tar -czf ${{ matrix.asset_name }} -C dist bin
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir -p dist/bin
+          cp target/release/background.exe dist/bin/
+          cp target/release/popup_ui.exe dist/bin/
+          cp target/release/settings_app.exe dist/bin/
+          7z a -tzip ${{ matrix.asset_name }} ./dist/bin
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_name }}
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ matrix.asset_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
