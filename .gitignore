@@ -24,3 +24,12 @@
 *.out
 *.o
 
+# Distribution files
+dist/*
+
+# Configuration files
+config/*
+
+# Logs
+logs/*
+

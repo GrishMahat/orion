@@ -7,6 +7,7 @@ use tokio::net::{TcpStream as TokioTcpStream, UnixListener};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use std::sync::Arc;
+use directories;
 
 use crate::models::IpcMessage;
 
@@ -20,12 +21,21 @@ pub struct IpcServer {
 }
 
 impl IpcServer {
-    pub fn new(_socket_path: PathBuf) -> Result<Self> {
-        let listener = UnixListener::bind("background.sock")
-            .with_context(|| "Failed to bind to Unix socket")?;
+    pub fn new(socket_path: PathBuf) -> Result<Self> {
+        let socket_path_str = socket_path.to_string_lossy().to_string();
+
+        // Remove the socket file if it already exists
+        if socket_path.exists() {
+            std::fs::remove_file(&socket_path)
+                .with_context(|| format!("Failed to remove existing socket at {:?}", socket_path))?;
+        }
+
+        let listener = UnixListener::bind(&socket_path)
+            .with_context(|| format!("Failed to bind to Unix socket at {:?}", socket_path))?;
+
         Ok(IpcServer {
             listener: Arc::new(listener),
-            address: "background.sock".to_string(),
+            address: socket_path_str,
         })
     }
 
@@ -34,7 +44,18 @@ impl IpcServer {
     }
 
     pub fn create_new() -> Result<Self> {
-        Self::new(PathBuf::from("background.sock"))
+        // Use the XDG config directory for the socket
+        let proj_dirs = directories::ProjectDirs::from("", "", "orion")
+            .context("Failed to get project directories")?;
+
+        let config_dir = proj_dirs.config_dir();
+
+        // Ensure the directory exists
+        std::fs::create_dir_all(config_dir)
+            .with_context(|| format!("Failed to create config directory at {:?}", config_dir))?;
+
+        let socket_path = config_dir.join("orion.sock");
+        Self::new(socket_path)
     }
 
     pub async fn start_async(&self) -> Result<()> {

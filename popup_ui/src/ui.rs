@@ -4,6 +4,21 @@ use iced::{
 };
 use shared::models::{SearchResult, SearchQuery};
 
+// Custom style for selected items
+struct SelectedItemStyle;
+
+impl container::StyleSheet for SelectedItemStyle {
+    type Style = Theme;
+
+    fn appearance(&self, _style: &Self::Style) -> container::Appearance {
+        container::Appearance {
+            background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
+            text_color: Some(Color::WHITE),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     SearchInputChanged(String),
@@ -70,7 +85,7 @@ impl SearchUI {
                     .into()
             }
         } else {
-            let results_widgets = self.results
+            let results_widgets: Vec<Element<Message, Theme>> = self.results
                 .iter()
                 .enumerate()
                 .map(|(idx, result)| {
@@ -86,14 +101,9 @@ impl SearchUI {
                         });
 
                     if is_selected {
+                        // For selected item, use a custom style without a closure
                         container(result_row)
-                            .style(|_| {
-                                container::Appearance {
-                                    background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
-                                    text_color: Some(Color::WHITE),
-                                    ..Default::default()
-                                }
-                            })
+                            .style(iced::theme::Container::Custom(Box::new(SelectedItemStyle)))
                             .width(Length::Fill)
                             .padding(5)
                             .into()
