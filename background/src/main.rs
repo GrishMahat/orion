@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
-use shared::{logging, ipc, config, models};
+use anyhow::Result;
+use shared::{config, ipc, logging, models};
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use std::time::Duration;
-use tokio::time::sleep;
 use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 mod hotkey;
 mod process;
@@ -15,6 +15,7 @@ use hotkey::HotkeyManager;
 use process::ProcessManager;
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct Bang {
     c: String,  // category
     d: String,  // domain
@@ -31,7 +32,7 @@ async fn main() -> Result<()> {
     let log_path = directories::ProjectDirs::from("com", "orion", "logs")
         .map(|proj_dirs| proj_dirs.data_dir().join("background.log"))
         .unwrap_or_else(|| PathBuf::from("background.log"));
-    
+
     logging::init(Some(log_path))?;
     logging::info("Background service starting...");
 
@@ -43,7 +44,7 @@ async fn main() -> Result<()> {
     let config_path = directories::ProjectDirs::from("com", "orion", "config")
         .map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
         .unwrap_or_else(|| PathBuf::from("config.toml"));
-    
+
     let config = Arc::new(Mutex::new(config::Config::load(&config_path)?));
     logging::info("Configuration loaded successfully");
 
@@ -57,14 +58,15 @@ async fn main() -> Result<()> {
     logging::info("Process manager initialized");
 
     // Initialize hotkey manager
-    let hotkey_manager = HotkeyManager::new()?;
+    let mut hotkey_manager = HotkeyManager::new()?;
     logging::info("Hotkey manager initialized");
 
     // Start IPC server in a separate task
+    let ipc_server = Arc::new(ipc_server);
     let ipc_server_clone = ipc_server.clone();
     tokio::spawn(async move {
         if let Err(e) = ipc_server_clone.start_async().await {
-            logging::error(&format!("IPC server error: {}", e));
+            logging::error(&format!("IPC server error: {:?}", e));
         }
     });
 
@@ -72,14 +74,14 @@ async fn main() -> Result<()> {
     let config_clone = config.clone();
     let process_manager_clone = process_manager.clone();
     hotkey_manager.start_listening(
-        &[rdev::Key::ControlLeft, rdev::Key::AltLeft],
+        &[rdev::Key::ControlLeft, rdev::Key::Alt],
         rdev::Key::Space,
         move || {
             let config = config_clone.clone();
             let process_manager = process_manager_clone.clone();
             tokio::spawn(async move {
                 if let Err(e) = handle_hotkey_press(&config, &process_manager).await {
-                    logging::error(&format!("Error handling hotkey press: {}", e));
+                    logging::error(&format!("Error handling hotkey press: {:?}", e));
                 }
             });
         },
@@ -88,22 +90,22 @@ async fn main() -> Result<()> {
 
     // Main event loop
     loop {
-        match ipc_server.receive_message() {
+        match ipc_server.receive_message().await {
             Ok(message) => {
                 match message {
                     models::IpcMessage::SearchQuery(query) => {
                         if let Err(e) = handle_search(query, &config, &process_manager).await {
-                            logging::error(&format!("Error handling search: {}", e));
+                            logging::error(&format!("Error handling search: {:?}", e));
                         }
                     }
                     models::IpcMessage::Command(cmd) => {
                         if let Err(e) = handle_command(cmd, &config, &process_manager).await {
-                            logging::error(&format!("Error handling command: {}", e));
+                            logging::error(&format!("Error handling command: {:?}", e));
                         }
                     }
                     models::IpcMessage::ConfigUpdate => {
                         if let Err(e) = handle_config_update(&config_path, &config).await {
-                            logging::error(&format!("Error updating config: {}", e));
+                            logging::error(&format!("Error updating config: {:?}", e));
                         }
                     }
                     models::IpcMessage::Redirect(url) => {
@@ -117,7 +119,7 @@ async fn main() -> Result<()> {
                             &config,
                             &process_manager,
                         ).await {
-                            logging::error(&format!("Error handling redirect: {}", e));
+                            logging::error(&format!("Error handling redirect: {:?}", e));
                         }
                     }
                     _ => {
@@ -126,7 +128,7 @@ async fn main() -> Result<()> {
                 }
             }
             Err(e) => {
-                logging::error(&format!("Error receiving message: {}", e));
+                logging::error(&format!("Error receiving message: {:?}", e));
                 // Add delay to prevent tight loop on error
                 sleep(Duration::from_millis(100)).await;
             }
@@ -139,22 +141,22 @@ async fn handle_hotkey_press(
     process_manager: &Arc<ProcessManager>,
 ) -> Result<()> {
     logging::info("Hotkey pressed, toggling popup UI");
-    
+
     let config = config.lock().await;
-    let current_profile = config.get_current_profile()?;
-    
-    if let Some(process) = &*process_manager.popup_process.lock().await {
+    let _current_profile = config.get_current_profile()?;
+
+    if process_manager.is_popup_running().await {
         logging::info("Popup UI is running, stopping it");
         process_manager.stop_popup().await?;
     } else {
         logging::info("Starting popup UI");
         process_manager.start_popup().await?;
-        
+
         // Send initial configuration to popup
         let message = models::IpcMessage::ConfigUpdate;
         process_manager.send_message(message).await?;
     }
-    
+
     Ok(())
 }
 
@@ -164,15 +166,15 @@ async fn handle_search(
     process_manager: &Arc<ProcessManager>,
 ) -> Result<()> {
     logging::info(&format!("Handling search query: {}", query.text));
-    
+
     let config = config.lock().await;
     let current_profile = config.get_current_profile()?;
-    
+
     // Load bangs from file
     let bangs_path = directories::ProjectDirs::from("com", "orion", "config")
         .map(|proj_dirs| proj_dirs.config_dir().join("bangs.json"))
         .unwrap_or_else(|| PathBuf::from("bangs.json"));
-        
+
     if let Ok(bangs_content) = std::fs::read_to_string(&bangs_path) {
         if let Ok(bangs) = serde_json::from_str::<Vec<models::Bang>>(&bangs_content) {
             // Try to find a bang at the start of the query
@@ -183,7 +185,7 @@ async fn handle_search(
                     return Ok(());
                 }
             }
-            
+
             // Try to find a bang at the end of the query
             if let Some((search, bang)) = query.text.rsplit_once(' ') {
                 if let Some(bang) = bangs.iter().find(|b| b.trigger == bang) {
@@ -192,12 +194,12 @@ async fn handle_search(
                     return Ok(());
                 }
             }
-            
+
             // Try to find a bang in the middle of the query
             let words: Vec<&str> = query.text.split(' ').collect();
             for i in 1..words.len()-1 {
                 if let Some(bang) = bangs.iter().find(|b| b.trigger == words[i]) {
-                    let search = format!("{} {}", 
+                    let search = format!("{} {}",
                         words[..i].join(" "),
                         words[i+1..].join(" ")
                     );
@@ -208,103 +210,92 @@ async fn handle_search(
             }
         }
     }
-    
+
     // Otherwise, perform normal search
     let mut results = Vec::new();
-    
+
     // Search in commands
-    if let Some(profile) = config.get_current_profile()? {
-        for cmd in &profile.commands {
-            if cmd.matches_query(&query.text) {
-                results.push(models::SearchResult::new(
-                    cmd.name.clone(),
-                    Some(cmd.description.clone()),
-                    cmd.action.clone(),
-                    1.0
-                ));
-            }
+    for cmd in &current_profile.commands {
+        // Convert config::Command to models::Command
+        let model_cmd = models::Command::new(
+            cmd.name.clone(),
+            cmd.description.clone(),
+            models::Action::OpenUrl(cmd.url.clone()),
+            Vec::new()
+        );
+
+        if model_cmd.matches_query(&query.text) {
+            results.push(models::SearchResult::new(
+                cmd.name.clone(),
+                Some(cmd.description.clone()),
+                models::Action::OpenUrl(cmd.url.clone()),
+                1.0
+            ));
         }
     }
-    
+
     // Sort results by score
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-    
+
     let response = models::SearchResponse {
         results,
         query,
     };
-    
+
     process_manager.send_message(models::IpcMessage::SearchResponse(response)).await?;
     Ok(())
 }
 
 async fn handle_command(
     cmd: models::Command,
-    config: &Arc<Mutex<config::Config>>,
-    process_manager: &Arc<ProcessManager>,
+    _config: &Arc<Mutex<config::Config>>,
+    _process_manager: &Arc<ProcessManager>,
 ) -> Result<()> {
     logging::info(&format!("Handling command: {}", cmd.name));
-    
+
     match cmd.action {
         models::Action::OpenFile(path) => {
             logging::info(&format!("Opening file: {:?}", path));
             if cfg!(target_os = "windows") {
-                Command::new("explorer")
-                    .arg(path)
-                    .spawn()?;
+                Command::new("explorer").arg(path).spawn()?;
             } else if cfg!(target_os = "macos") {
-                Command::new("open")
-                    .arg(path)
-                    .spawn()?;
+                Command::new("open").arg(path).spawn()?;
             } else {
-                Command::new("xdg-open")
-                    .arg(path)
-                    .spawn()?;
+                Command::new("xdg-open").arg(path).spawn()?;
             }
         }
         models::Action::ExecuteCommand(command) => {
             logging::info(&format!("Executing command: {}", command));
             if cfg!(target_os = "windows") {
-                Command::new("cmd")
-                    .arg("/C")
-                    .arg(command)
-                    .spawn()?;
+                Command::new("cmd").arg("/C").arg(command).spawn()?;
             } else {
-                Command::new("sh")
-                    .arg("-c")
-                    .arg(command)
-                    .spawn()?;
+                Command::new("sh").arg("-c").arg(command).spawn()?;
             }
         }
         models::Action::OpenUrl(url) => {
             logging::info(&format!("Opening URL: {}", url));
             if cfg!(target_os = "windows") {
-                Command::new("explorer")
-                    .arg(url)
-                    .spawn()?;
+                Command::new("explorer").arg(url).spawn()?;
             } else if cfg!(target_os = "macos") {
-                Command::new("open")
-                    .arg(url)
-                    .spawn()?;
+                Command::new("open").arg(url).spawn()?;
             } else {
-                Command::new("xdg-open")
-                    .arg(url)
-                    .spawn()?;
+                Command::new("xdg-open").arg(url).spawn()?;
             }
         }
         models::Action::Custom(_) => {
             logging::warn("Custom actions not implemented yet");
         }
     }
-    
+
     Ok(())
 }
 
 async fn handle_config_update(path: &PathBuf, config: &Arc<Mutex<config::Config>>) -> Result<()> {
-    logging::info("Reloading configuration");
+    logging::info("Updating configuration");
+
     let new_config = config::Config::load(path)?;
     *config.lock().await = new_config;
-    logging::info("Configuration reloaded successfully");
+
+    logging::info("Configuration updated successfully");
     Ok(())
 }
-

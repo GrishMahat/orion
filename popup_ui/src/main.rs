@@ -1,25 +1,30 @@
-use iced::{Application, Element, Text};
+use iced::{Application, Element, widget::Text, executor, Theme};
 
 fn main() {
-    println!("Hello, world!");
+    App::run(Default::default()).unwrap();
 }
-
 
 struct App;
 
 impl Application for App {
     type Message = ();
-    fn new() -> Self {
-        App
-    }
-    fn title(&self) -> String {
-        "Popup UI".to_string().into()
+    type Theme = Theme;
+    type Executor = executor::Default;
+    type Flags = ();
+
+    fn new(_flags: ()) -> (Self, iced::Command<Self::Message>) {
+        (App, iced::Command::none())
     }
 
-    fn update(&mut self, _message: Self::Message) {
-        // No updates needed
+    fn title(&self) -> String {
+        "Popup UI".to_string()
+    }
+
+    fn update(&mut self, _message: Self::Message) -> iced::Command<Self::Message> {
+        iced::Command::none()
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
-        Text::new("Search hear ..").into()
+        Text::new("Search here...").into()
+    }
 }
