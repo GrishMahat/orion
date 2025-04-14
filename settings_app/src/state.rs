@@ -2,7 +2,7 @@ use iced::Color;
 use shared::config;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use iced::{Theme, theme};
+use iced::Theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -11,13 +11,6 @@ pub enum Tab {
     Hotkeys,
     Appearance,
     Advanced,
-}
-
-// Define theme option for the UI components
-pub enum ThemeOption {
-    System,
-    Light,
-    Dark,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -39,6 +32,7 @@ pub struct State {
     pub theme: AppTheme,
     pub sensitivity: f32,
     pub accent_color: Color,
+    pub settings: Vec<(String, String)>,
 }
 
 impl State {
@@ -54,6 +48,7 @@ impl State {
             theme: AppTheme::System,
             sensitivity: 0.7,
             accent_color: Color::from_rgb(0.4, 0.4, 0.9),
+            settings: Vec::new(),
         }
     }
 
@@ -61,19 +56,8 @@ impl State {
         match self.theme {
             AppTheme::Light => Theme::Light,
             AppTheme::Dark => Theme::Dark,
-            AppTheme::System => {
-                if dark_light::detect() == dark_light::Mode::Dark {
-                    Theme::Dark
-                } else {
-                    Theme::Light
-                }
-            }
+            AppTheme::System => Theme::Dark, // Default to dark theme without dark_light
         }
-    }
-
-    pub fn has_unsaved_changes(&self) -> bool {
-        // TODO: Check if state differs from loaded config
-        true
     }
 
     // Keep for future implementation

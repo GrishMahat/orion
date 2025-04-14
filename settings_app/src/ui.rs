@@ -9,7 +9,6 @@ use crate::app::AppMessage;
 use crate::state::{AppTheme, State, Tab};
 
 // Define Color Constants
-const ACCENT_COLOR: Color = Color::from_rgb(0.35, 0.56, 0.98); // Shared Accent
 
 // Dark Theme Colors
 const DARK_BACKGROUND: Color = Color::from_rgb(0.13, 0.14, 0.17);
@@ -343,7 +342,8 @@ fn general_tab(state: &State) -> Element<AppMessage> {
     let voice_toggle = setting_row(
         "Enable voice",
         checkbox("", state.voice_enabled)
-            .on_toggle(AppMessage::ToggleVoice),
+            .on_toggle(AppMessage::ToggleVoice)
+            .into(),
         theme,
     );
 
@@ -355,7 +355,8 @@ fn general_tab(state: &State) -> Element<AppMessage> {
             Some(state.current_profile.clone()),
             AppMessage::SelectProfile
         )
-        .width(Length::Fixed(200.0)),
+        .width(Length::Fixed(200.0))
+        .into(),
         theme,
     );
 
@@ -370,7 +371,8 @@ fn general_tab(state: &State) -> Element<AppMessage> {
                 .on_press(AppMessage::AddProfile)
                 .padding(8)
         ]
-        .spacing(10),
+        .spacing(10)
+        .into(),
         theme,
     );
 
@@ -428,7 +430,8 @@ fn hotkeys_tab(state: &State) -> Element<AppMessage> {
         text_input("Enter hotkey", &state.hotkey)
             .padding(10)
             .width(Length::Fixed(200.0))
-            .on_input(AppMessage::UpdateHotkey),
+            .on_input(AppMessage::UpdateHotkey)
+            .into(),
         theme,
     );
 
@@ -452,7 +455,8 @@ fn appearance_tab(state: &State) -> Element<AppMessage> {
             Some(theme),
             AppMessage::SetTheme
         )
-        .width(Length::Fixed(200.0)),
+        .width(Length::Fixed(200.0))
+        .into(),
         theme,
     );
 
@@ -558,7 +562,7 @@ impl TabUI {
         Self {}
     }
 
-    pub fn view(&self, state: &State) -> Element<AppMessage> {
+    pub fn view<'a>(&self, state: &'a State) -> Element<'a, AppMessage> {
         view(state)
     }
 }

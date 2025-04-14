@@ -1,15 +1,12 @@
-use anyhow::Result;
-use iced::{Application, Command, Element, executor, Theme, Settings, window};
-use shared::{config, ipc, logging};
+use iced::{Application, Command, Element, executor, Theme};
+use shared::config;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use iced::widget::text_editor::Action;
-use iced::{Color};
+use iced::Color;
 
 use crate::state::{State, Tab, AppTheme};
-use crate::ui::{self, TabUI};
-use crate::profiles::ProfileManager;
+use crate::ui::TabUI;
 
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -30,9 +27,7 @@ pub enum AppMessage {
 
 pub struct App {
     state: State,
-    profile_manager: Option<ProfileManager>,
     config_path: PathBuf,
-    ipc_client: Option<Arc<Mutex<ipc::IpcClient>>>,
     ui: TabUI,
 }
 
@@ -54,9 +49,7 @@ impl Application for App {
         // Create app
         let app = Self {
             state: State::new(default_config),
-            profile_manager: None,
             config_path,
-            ipc_client: None,
             ui: TabUI::new(),
         };
 
@@ -124,7 +117,9 @@ impl Application for App {
                 println!("Settings saved!");
             }
             AppMessage::ResetSettings => {
-                self.state = State::new();
+                // Make a copy of the existing config
+                let config = self.state.config.clone();
+                self.state = State::new(config);
             }
             AppMessage::LoadConfig(config) => {
                 // Update State with loaded config
