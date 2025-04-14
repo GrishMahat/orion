@@ -1,11 +1,11 @@
 use iced::{alignment, Background, Color, Element, Length, Theme};
 use iced::widget::{
     button, checkbox, column, container, horizontal_space, row, slider, text, text_input, Space,
-    vertical_space,
+    vertical_space, pick_list, scrollable,
 };
 use iced::theme;
 
-use crate::app::Message;
+use crate::app::AppMessage;
 use crate::state::{AppTheme, State, Tab};
 
 // Define Color Constants
@@ -198,7 +198,7 @@ fn get_text_secondary_color(theme: AppTheme) -> Color {
     }
 }
 
-pub fn view(state: &State) -> Element<Message> {
+pub fn view(state: &State) -> Element<AppMessage> {
     let theme = state.theme;
     let accent_color = state.accent_color;
     let text_color = get_text_color(theme);
@@ -247,7 +247,7 @@ pub fn view(state: &State) -> Element<Message> {
             accent_color,
             is_selected,
         })))
-        .on_press(Message::TabSelected(tab))
+        .on_press(AppMessage::TabSelected(tab))
     };
 
     let sidebar = column![
@@ -310,7 +310,7 @@ pub fn view(state: &State) -> Element<Message> {
 
 // --- Helper Widgets ---
 
-fn section_title(title: &str, theme: AppTheme) -> Element<'static, Message> {
+fn section_title(title: &str, theme: AppTheme) -> Element<'static, AppMessage> {
     let text_color = get_text_color(theme);
     row![text(title).size(20).style(text_color),]
         .padding([5, 0, 15, 0]) // Adjusted padding
@@ -320,9 +320,9 @@ fn section_title(title: &str, theme: AppTheme) -> Element<'static, Message> {
 
 fn setting_row<'a>(
     label: &str,
-    component: Element<'a, Message>,
+    component: Element<'a, AppMessage>,
     theme: AppTheme,
-) -> Element<'a, Message> {
+) -> Element<'a, AppMessage> {
     let text_color = get_text_color(theme);
     row![
         text(label).size(14).style(text_color),
@@ -338,129 +338,130 @@ fn setting_row<'a>(
 
 // --- Tab Implementations ---
 
-fn general_tab(state: &State) -> Element<Message> {
+fn general_tab(state: &State) -> Element<AppMessage> {
     let theme = state.theme;
     let voice_toggle = setting_row(
         "Enable voice",
         checkbox("", state.voice_enabled)
-            .on_toggle(Message::ToggleVoice)
-            .into(),
+            .on_toggle(AppMessage::ToggleVoice),
         theme,
     );
 
-    let auto_update = setting_row(
-        "Auto updates",
-        checkbox("", true) // Placeholder value
-            // .on_toggle(|_| Message::UpdateSetting("auto_update".to_string(), "true".to_string())) // Add logic if needed
-            .into(),
+    // Profile related UI
+    let profile_selector = setting_row(
+        "Current Profile",
+        pick_list(
+            state.profiles.clone(),
+            Some(state.current_profile.clone()),
+            AppMessage::SelectProfile
+        )
+        .width(Length::Fixed(200.0)),
         theme,
     );
 
-    let startup = setting_row(
-        "Launch on startup",
-        checkbox("", false) // Placeholder value
-            // .on_toggle(|_| Message::UpdateSetting("launch_on_startup".to_string(), "false".to_string())) // Add logic if needed
-            .into(),
+    let new_profile_row = setting_row(
+        "Add new profile",
+        row![
+            text_input("New profile name", &state.new_profile_name)
+                .on_input(AppMessage::UpdateNewProfileName)
+                .padding(8)
+                .width(Length::Fixed(140.0)),
+            button(text("Add"))
+                .on_press(AppMessage::AddProfile)
+                .padding(8)
+        ]
+        .spacing(10),
         theme,
     );
+
+    // Profile list with delete buttons
+    let profiles = state.profiles.iter().map(|profile| {
+        setting_row(
+            profile,
+            if profile != "Default" {
+                button(text("Delete"))
+                    .on_press(AppMessage::DeleteProfile(profile.clone()))
+                    .padding(8)
+                    .into()
+            } else {
+                // Don't allow deleting the Default profile
+                Space::with_width(Length::Shrink).into()
+            },
+            theme,
+        )
+    }).collect::<Vec<_>>();
+
+    let profiles_list = if !profiles.is_empty() {
+        scrollable(
+            column(profiles)
+                .spacing(5)
+                .width(Length::Fill)
+        )
+        .height(Length::Fixed(200.0))
+        .width(Length::Fill)
+    } else {
+        scrollable(
+            text("No profiles available")
+                .style(get_text_secondary_color(theme))
+        )
+        .height(Length::Fixed(200.0))
+        .width(Length::Fill)
+    };
 
     column![
         section_title("General Settings", theme),
         voice_toggle,
-        auto_update,
-        startup,
+        section_title("Profile Management", theme),
+        profile_selector,
+        new_profile_row,
+        profiles_list,
     ]
-    .spacing(5)
+    .spacing(10)
     .width(Length::Fill)
     .into()
 }
 
-fn hotkeys_tab(state: &State) -> Element<Message> {
+fn hotkeys_tab(state: &State) -> Element<AppMessage> {
     let theme = state.theme;
     let hotkey_edit = setting_row(
         "Activation shortcut",
         text_input("Enter hotkey", &state.hotkey)
-            .padding(10) // Adjusted padding
-            .width(Length::Fixed(200.0))
-            .on_input(Message::UpdateHotkey)
-            .into(),
-        theme,
-    );
-
-    let alt_hotkey = setting_row(
-        "Alternative shortcut",
-        text_input("Enter hotkey", "Alt+Space") // Placeholder
             .padding(10)
             .width(Length::Fixed(200.0))
-            // .on_input(...) // Add handler if needed
-            .into(),
+            .on_input(AppMessage::UpdateHotkey),
         theme,
     );
 
     column![
         section_title("Keyboard Shortcuts", theme),
         hotkey_edit,
-        alt_hotkey,
     ]
-    .spacing(5)
+    .spacing(10)
     .width(Length::Fill)
     .into()
 }
 
-fn appearance_tab(state: &State) -> Element<Message> {
+fn appearance_tab(state: &State) -> Element<AppMessage> {
     let theme = state.theme;
     let accent_color = state.accent_color;
 
-    let theme_button = |label: &str, value: AppTheme, current: AppTheme| {
-        let is_selected = value == current;
-        button(text(label).size(14))
-            .padding(10)
-            .style(if is_selected {
-                theme::Button::Primary
-            } else {
-                theme::Button::Secondary
-            })
-            .on_press(Message::SetTheme(value))
-    };
-
     let theme_selector = setting_row(
         "Theme",
-        row![
-            theme_button("Light", AppTheme::Light, theme),
-            theme_button("Dark", AppTheme::Dark, theme),
-            // theme_button("System", AppTheme::System, theme), // Add when implemented
-        ]
-        .spacing(10)
-        .into(),
+        pick_list(
+            vec![AppTheme::Light, AppTheme::Dark, AppTheme::System],
+            Some(theme),
+            AppMessage::SetTheme
+        )
+        .width(Length::Fixed(200.0)),
         theme,
     );
 
-    let sensitivity_slider = setting_row(
-        "Sensitivity",
-        column![
-            slider(0.0..=1.0, state.sensitivity, Message::UpdateSensitivity)
-                .width(Length::Fixed(200.0)),
-            row![text(format!(
-                "{}%",
-                (state.sensitivity * 100.0) as i32
-            ))
-            .size(12)
-            .style(get_text_secondary_color(theme))]
-            .width(Length::Fixed(200.0))
-            .align_items(alignment::Alignment::Center),
-        ]
-        .spacing(5)
-        .into(),
-        theme,
-    );
-
-    let color_button = |color: Color, current_accent: Color| -> Element<Message> {
-        let is_selected = color == current_accent; // TODO: Check color equality properly
+    let color_button = |color: Color, current_accent: Color| -> Element<AppMessage> {
+        let is_selected = color == current_accent;
         button(
-            // Optionally add a checkmark or visual indicator if selected
             text(if is_selected { "✔" } else { "" })
                 .size(14)
-                .style(theme::Text::Color(Color::WHITE)), // Specify Text color style
+                .style(theme::Text::Color(Color::WHITE)),
         )
         .width(Length::Fixed(32.0))
         .height(Length::Fixed(32.0))
@@ -468,8 +469,8 @@ fn appearance_tab(state: &State) -> Element<Message> {
             color,
             theme,
         })))
-        .on_press(Message::SetAccentColor(color))
-        .into() // Convert Button to Element here
+        .on_press(AppMessage::SetAccentColor(color))
+        .into()
     };
 
     let accent_colors = vec![
@@ -493,72 +494,71 @@ fn appearance_tab(state: &State) -> Element<Message> {
     column![
         section_title("Appearance", theme),
         theme_selector,
-        sensitivity_slider,
         accent_color_selector,
     ]
-    .spacing(5)
+    .spacing(10)
     .width(Length::Fill)
     .into()
 }
 
-fn advanced_tab(state: &State) -> Element<Message> {
+fn advanced_tab(state: &State) -> Element<AppMessage> {
     let theme = state.theme;
-    let text_secondary_color = get_text_secondary_color(theme);
 
-    let log_level_button = |label: &str, is_selected: bool| {
-        button(text(label).size(14))
-            .padding(10)
-            .style(if is_selected {
-                theme::Button::Primary
-            } else {
-                theme::Button::Secondary
-            })
-        // .on_press(...) // Add handler
-    };
-
-    let log_level = setting_row(
-        "Log level",
-        row![
-            log_level_button("Info", true), // Placeholder
-            log_level_button("Debug", false),
-            log_level_button("Trace", false),
+    let sensitivity_slider = setting_row(
+        "Voice Sensitivity",
+        column![
+            slider(0.0..=1.0, state.sensitivity, AppMessage::AdjustSensitivity)
+                .width(Length::Fixed(200.0)),
+            row![text(format!(
+                "{}%",
+                (state.sensitivity * 100.0) as i32
+            ))
+            .size(12)
+            .style(get_text_secondary_color(theme))]
+            .width(Length::Fixed(200.0))
+            .align_items(alignment::Alignment::Center),
         ]
-        .spacing(10)
+        .spacing(5)
         .into(),
         theme,
     );
 
-    let cache_setting = setting_row(
-        "Clear cache",
-        button(text("Clear").size(14))
+    let action_buttons = row![
+        button(text("Reset to Defaults"))
+            .on_press(AppMessage::ResetSettings)
+            .padding(10),
+        button(text("Save Changes"))
+            .on_press(AppMessage::SaveSettings)
             .padding(10)
-            .style(theme::Button::Destructive)
-            // .on_press(Message::ClearCache) // Add handler
-            .into(),
-        theme,
-    );
-
-    let export_setting = setting_row(
-        "Export settings",
-        button(text("Export").size(14))
-            .padding(10)
-            .style(theme::Button::Secondary)
-            .on_press(Message::SaveConfig)
-            .into(),
-        theme,
-    );
+            .style(theme::Button::Primary)
+    ]
+    .spacing(10)
+    .width(Length::Fill);
 
     column![
         section_title("Advanced Settings", theme),
-        log_level,
-        cache_setting,
-        export_setting,
+        sensitivity_slider,
         vertical_space().height(Length::Fixed(20.0)),
         text("Warning: These settings are for advanced users only.")
             .size(12)
-            .style(Color::from_rgb(0.9, 0.6, 0.2)), // Warning color (might need adjustment for light theme)
+            .style(Color::from_rgb(0.9, 0.6, 0.2)),
+        vertical_space().height(Length::Fixed(20.0)),
+        action_buttons,
     ]
-    .spacing(5)
+    .spacing(10)
     .width(Length::Fill)
     .into()
-} 
+}
+
+// TabUI struct to handle UI rendering
+pub struct TabUI {}
+
+impl TabUI {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn view(&self, state: &State) -> Element<AppMessage> {
+        view(state)
+    }
+}

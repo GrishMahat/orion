@@ -2,86 +2,120 @@ use iced::Color;
 use shared::config;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use iced::{Theme, theme};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
+    #[default]
     General,
     Hotkeys,
     Appearance,
-    Advanced
+    Advanced,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AppTheme {
+// Define theme option for the UI components
+pub enum ThemeOption {
+    System,
     Light,
     Dark,
-    System, // Placeholder for potential system theme integration
 }
 
-impl Default for AppTheme {
-    fn default() -> Self {
-        AppTheme::Dark // Default to Dark theme
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppTheme {
+    #[default]
+    System,
+    Light,
+    Dark,
 }
 
 pub struct State {
-    pub current_profile: String,
-    pub profiles: Vec<String>,
-    pub settings: Vec<(String, String)>,
-    pub new_profile_name: String,
+    pub config: Arc<Mutex<config::Config>>,
     pub active_tab: Tab,
+    pub profiles: Vec<String>,
+    pub current_profile: String,
+    pub new_profile_name: String,
     pub voice_enabled: bool,
     pub hotkey: String,
     pub theme: AppTheme,
     pub sensitivity: f32,
     pub accent_color: Color,
-    config: Arc<Mutex<config::Config>>,
 }
 
 impl State {
     pub fn new(config: Arc<Mutex<config::Config>>) -> Self {
-        let state = Self {
-            current_profile: String::new(),
-            profiles: Vec::new(),
-            settings: Vec::new(),
-            new_profile_name: String::new(),
-            active_tab: Tab::General,
-            voice_enabled: true,
-            hotkey: "Ctrl+Space".to_string(),
-            theme: AppTheme::Dark, // Default to Dark theme
-            sensitivity: 0.7,
-            accent_color: Color::from_rgb(0.35, 0.56, 0.98), // Default accent
+        Self {
             config,
-        };
-        
-        // Load initial configuration data (but don't await the future)
-        // This will ensure the fields get properly initialized when the state is created
-        let _ = state.profiles.clone();
-        let _ = state.settings.clone();
-        let _ = state.config.clone();
-        
-        state
+            active_tab: Tab::General,
+            profiles: vec!["Default".to_string(), "Work".to_string(), "Gaming".to_string()],
+            current_profile: "Default".to_string(),
+            new_profile_name: String::new(),
+            voice_enabled: true,
+            hotkey: "Alt+Space".to_string(),
+            theme: AppTheme::System,
+            sensitivity: 0.7,
+            accent_color: Color::from_rgb(0.4, 0.4, 0.9),
+        }
+    }
+
+    pub fn theme(&self) -> Theme {
+        match self.theme {
+            AppTheme::Light => Theme::Light,
+            AppTheme::Dark => Theme::Dark,
+            AppTheme::System => {
+                if dark_light::detect() == dark_light::Mode::Dark {
+                    Theme::Dark
+                } else {
+                    Theme::Light
+                }
+            }
+        }
+    }
+
+    pub fn has_unsaved_changes(&self) -> bool {
+        // TODO: Check if state differs from loaded config
+        true
     }
 
     // Keep for future implementation
     #[allow(dead_code)]
     pub async fn load(&mut self) -> anyhow::Result<()> {
         let config = self.config.lock().await;
-        
+
         // Load profiles
         self.profiles = config.get_profile_names();
-        
+
         // Load current profile
         if let Ok(profile) = config.get_current_profile() {
             self.current_profile = profile.name.clone();
-            
+
             // Load settings for current profile
             self.settings = vec![
                 ("max_results".to_string(), config.search.max_results.to_string()),
                 ("search_delay".to_string(), config.search.search_delay.to_string()),
             ];
         }
-        
+
         Ok(())
     }
-} 
+}
+
+impl std::fmt::Display for Tab {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tab::General => write!(f, "General"),
+            Tab::Hotkeys => write!(f, "Hotkeys"),
+            Tab::Appearance => write!(f, "Appearance"),
+            Tab::Advanced => write!(f, "Advanced"),
+        }
+    }
+}
+
+impl std::fmt::Display for AppTheme {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppTheme::System => write!(f, "System"),
+            AppTheme::Light => write!(f, "Light"),
+            AppTheme::Dark => write!(f, "Dark"),
+        }
+    }
+}
