@@ -1,5 +1,5 @@
 use iced::{
-    widget::{text_input, column, container, scrollable, Row, Text, TextInput},
+    widget::{column, container, scrollable, Row, Text, TextInput},
     Length, Element, Alignment, Color, Theme,
 };
 use shared::models::{SearchResult, SearchQuery};
@@ -50,7 +50,7 @@ impl SearchUI {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<Message, Theme> {
         let search_input = TextInput::new(
             "Type to search...",
             &self.input_value,
@@ -59,13 +59,13 @@ impl SearchUI {
         .padding(10)
         .size(20);
 
-        let results_list = if self.results.is_empty() {
+        let results_list: Element<Message, Theme> = if self.results.is_empty() {
             if !self.input_value.is_empty() {
-                column![Text::new("No results found").size(16)]
+                column![Text::<Theme>::new("No results found").size(16)]
                     .spacing(10)
                     .into()
             } else {
-                column![Text::new("Start typing to search").size(16)]
+                column![Text::<Theme>::new("Start typing to search").size(16)]
                     .spacing(10)
                     .into()
             }
@@ -78,11 +78,11 @@ impl SearchUI {
                     let result_row = Row::new()
                         .spacing(10)
                         .align_items(Alignment::Center)
-                        .push(Text::new(&result.title).size(16))
+                        .push(Text::<Theme>::new(&result.title).size(16))
                         .push(if let Some(desc) = &result.description {
-                            Text::new(desc).size(14)
+                            Text::<Theme>::new(desc).size(14)
                         } else {
-                            Text::new("").size(14)
+                            Text::<Theme>::new("").size(14)
                         });
 
                     if is_selected {
