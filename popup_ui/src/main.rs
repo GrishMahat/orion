@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, Context};
 use iced::{
     Application, Command, Element, executor, Theme, keyboard, event, window,
     Event, Subscription, Settings,
@@ -8,6 +8,7 @@ use shared::{ipc, models, logging};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use directories;
 
 mod ui;
 mod commands;
@@ -18,16 +19,41 @@ use state::AppState;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
-    let log_path = directories::ProjectDirs::from("com", "orion", "logs")
-        .map(|proj_dirs| proj_dirs.data_dir().join("popup.log"))
-        .unwrap_or_else(|| std::path::PathBuf::from("popup.log"));
+    let proj_dirs = directories::ProjectDirs::from("", "", "orion")
+        .context("Failed to get project directories")?;
+
+    let config_dir = proj_dirs.config_dir();
+    std::fs::create_dir_all(config_dir)?;
+
+    let log_path = config_dir.join("popup.log");
 
     logging::init(Some(log_path))?;
     logging::info("Popup UI starting...");
 
-    // Get IPC server address from command line arguments or use default
-    let server_addr = env::args().nth(1).unwrap_or_else(|| "background.sock".to_string());
+    // Try to load config first
+    let config_path = config_dir.join("config.toml");
+    let config = match shared::config::Config::load(&config_path) {
+        Ok(config) => {
+            logging::info(&format!("Loaded config from {}", config_path.display()));
+            config
+        },
+        Err(e) => {
+            logging::warn(&format!("Could not load config: {}. Using default socket path.", e));
+            shared::config::Config::default()
+        }
+    };
+
+    // Use socket path from config or from command line
+    let server_addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| config.ipc_socket_path.clone());
+
     logging::info(&format!("Using IPC server at: {}", server_addr));
+
+    // Create config directory if needed
+    if let Some(parent) = std::path::Path::new(&server_addr).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
     // Start the Iced application
     OrionApp::run(Settings::with_flags(OrionSettings {
@@ -68,8 +94,16 @@ impl Application for OrionApp {
         let ipc_client = match ipc::IpcClient::new(&settings.server_addr) {
             Ok(client) => Arc::new(Mutex::new(client)),
             Err(e) => {
-                logging::error(&format!("Failed to connect to IPC server: {}", e));
-                std::process::exit(1);
+                logging::error(&format!("Failed to connect to IPC server: {}. Attempting to use default socket path...", e));
+
+                // Try default path as fallback
+                match ipc::IpcClient::connect_to_default() {
+                    Ok(client) => Arc::new(Mutex::new(client)),
+                    Err(e) => {
+                        logging::error(&format!("Failed to connect to default IPC server: {}", e));
+                        std::process::exit(1);
+                    }
+                }
             }
         };
 

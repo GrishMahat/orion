@@ -56,17 +56,13 @@ pub async fn setup_config() -> Result<()> {
 
 async fn download_bangs(path: &PathBuf) -> Result<()> {
     // Download bangs.json
-    let bangs_path = config_dir.join("bangs.json");
     let response = reqwest::get(BANGS_URL).await?;
     let content = response.text().await?;
 
     // Save the file
-    fs::write(&bangs_path, content)?;
-
-    println!("Configuration setup complete!");
-    println!("bangs.json saved to: {}", bangs_path.display());
-
     fs::write(path, content)?;
+
+    println!("bangs.json downloaded and saved to: {}", path.display());
 
     Ok(())
 }

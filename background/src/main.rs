@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, Context};
 use shared::{config, ipc, logging, models};
 use std::path::PathBuf;
 use std::process::Command;
@@ -29,9 +29,13 @@ struct Bang {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
-    let log_path = directories::ProjectDirs::from("com", "orion", "logs")
-        .map(|proj_dirs| proj_dirs.data_dir().join("background.log"))
-        .unwrap_or_else(|| PathBuf::from("background.log"));
+    let proj_dirs = directories::ProjectDirs::from("", "", "orion")
+        .context("Failed to get project directories")?;
+
+    let config_dir = proj_dirs.config_dir();
+    std::fs::create_dir_all(config_dir)?;
+
+    let log_path = config_dir.join("background.log");
 
     logging::init(Some(log_path))?;
     logging::info("Background service starting...");
@@ -41,20 +45,40 @@ async fn main() -> Result<()> {
     logging::info("Configuration setup complete");
 
     // Load configuration
-    let config_path = directories::ProjectDirs::from("com", "orion", "config")
-        .map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
-        .unwrap_or_else(|| PathBuf::from("config.toml"));
+    let config_path = config_dir.join("config.toml");
+    let config_result = config::Config::load(&config_path);
 
-    let config = Arc::new(Mutex::new(config::Config::load(&config_path)?));
-    logging::info("Configuration loaded successfully");
+    let config = match config_result {
+        Ok(cfg) => {
+            logging::info(&format!("Configuration loaded from {}", config_path.display()));
+            Arc::new(Mutex::new(cfg))
+        },
+        Err(e) => {
+            logging::error(&format!("Failed to load config: {}. Using default config.", e));
+            Arc::new(Mutex::new(config::Config::default()))
+        }
+    };
+
+    // Get socket path from config
+    let socket_path_str = {
+        let cfg = config.lock().await;
+        cfg.ipc_socket_path.clone()
+    };
+
+    let socket_path = PathBuf::from(&socket_path_str);
+
+    // Ensure socket directory exists
+    if let Some(parent) = socket_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
     // Initialize IPC server
-    let ipc_server = ipc::IpcServer::new(PathBuf::from("background.sock"))?;
+    let ipc_server = ipc::IpcServer::new(socket_path)?;
     let server_addr = ipc_server.address();
     logging::info(&format!("IPC server started at {}", server_addr));
 
     // Initialize process manager
-    let process_manager = Arc::new(ProcessManager::new(&format!("{}", server_addr))?);
+    let process_manager = Arc::new(ProcessManager::new(&server_addr)?);
     logging::info("Process manager initialized");
 
     // Initialize hotkey manager
@@ -171,9 +195,11 @@ async fn handle_search(
     let current_profile = config.get_current_profile()?;
 
     // Load bangs from file
-    let bangs_path = directories::ProjectDirs::from("com", "orion", "config")
-        .map(|proj_dirs| proj_dirs.config_dir().join("bangs.json"))
-        .unwrap_or_else(|| PathBuf::from("bangs.json"));
+    let proj_dirs = directories::ProjectDirs::from("", "", "orion")
+        .context("Failed to get project directories")?;
+
+    let config_dir = proj_dirs.config_dir();
+    let bangs_path = config_dir.join("bangs.json");
 
     if let Ok(bangs_content) = std::fs::read_to_string(&bangs_path) {
         if let Ok(bangs) = serde_json::from_str::<Vec<models::Bang>>(&bangs_content) {
