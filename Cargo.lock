@@ -1413,6 +1413,7 @@ dependencies = [
  "futures",
  "iced_core",
  "log",
+ "tokio",
  "wasm-bindgen-futures",
  "wasm-timer",
 ]
@@ -2952,6 +2953,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "directories",
+ "futures",
  "iced",
  "reqwest",
  "serde",

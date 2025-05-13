@@ -21,6 +21,7 @@ pub enum AppTheme {
     Dark,
 }
 
+#[derive(Clone)]
 pub struct State {
     pub config: Arc<Mutex<config::Config>>,
     pub active_tab: Tab,
@@ -37,10 +38,11 @@ pub struct State {
 
 impl State {
     pub fn new(config: Arc<Mutex<config::Config>>) -> Self {
+        // Create a default state
         Self {
-            config,
+            config: config.clone(),
             active_tab: Tab::General,
-            profiles: vec!["Default".to_string(), "Work".to_string(), "Gaming".to_string()],
+            profiles: vec!["Default".to_string()],
             current_profile: "Default".to_string(),
             new_profile_name: String::new(),
             voice_enabled: true,
@@ -60,24 +62,31 @@ impl State {
         }
     }
 
-    // Keep for future implementation
-    #[allow(dead_code)]
     pub async fn load(&mut self) -> anyhow::Result<()> {
         let config = self.config.lock().await;
 
         // Load profiles
         self.profiles = config.get_profile_names();
-
-        // Load current profile
-        if let Ok(profile) = config.get_current_profile() {
-            self.current_profile = profile.name.clone();
-
-            // Load settings for current profile
-            self.settings = vec![
-                ("max_results".to_string(), config.search.max_results.to_string()),
-                ("search_delay".to_string(), config.search.search_delay.to_string()),
-            ];
+        if self.profiles.is_empty() {
+            self.profiles = vec!["Default".to_string()];
         }
+
+        // Load current profile from config
+        self.current_profile = config.current_profile.clone();
+        
+        // Make sure current_profile is valid
+        if !self.profiles.contains(&self.current_profile) {
+            self.current_profile = self.profiles.first().unwrap_or(&"Default".to_string()).clone();
+        }
+            
+        // Load hotkey settings
+        self.hotkey = config.hotkey.key_combination.clone();
+            
+        // Load settings for current profile
+        self.settings = vec![
+            ("max_results".to_string(), config.search.max_results.to_string()),
+            ("search_delay".to_string(), config.search.search_delay.to_string()),
+        ];
 
         Ok(())
     }

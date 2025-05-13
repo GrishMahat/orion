@@ -93,13 +93,38 @@ impl Application for App {
                 self.state.sensitivity = value;
             }
             AppMessage::SelectProfile(profile) => {
-                self.state.current_profile = profile;
+                let profile_clone = profile.clone();
+                let config = self.state.config.clone();
+                
+                return Command::perform(
+                    async move {
+                        let mut config_guard = config.lock().await;
+                        if let Err(e) = crate::profiles::select_profile(&mut config_guard, &profile_clone).await {
+                            eprintln!("Failed to select profile: {}", e);
+                        }
+                        profile_clone
+                    },
+                    |name| AppMessage::SelectProfile(name)
+                );
             }
             AppMessage::AddProfile => {
                 if !self.state.new_profile_name.trim().is_empty()
                    && !self.state.profiles.contains(&self.state.new_profile_name) {
-                    self.state.profiles.push(self.state.new_profile_name.clone());
+                    let name = self.state.new_profile_name.clone();
+                    let config_for_async = self.state.config.clone();
+                    let config_for_callback = self.state.config.clone();
+                    
                     self.state.new_profile_name.clear();
+                    
+                    return Command::perform(
+                        async move {
+                            let mut config_guard = config_for_async.lock().await;
+                            if let Err(e) = crate::profiles::add_profile(&mut config_guard, name.clone()).await {
+                                eprintln!("Failed to add profile: {}", e);
+                            }
+                        },
+                        move |_| AppMessage::LoadConfig(config_for_callback.clone())
+                    );
                 }
             }
             AppMessage::UpdateNewProfileName(name) => {
@@ -107,14 +132,41 @@ impl Application for App {
             }
             AppMessage::DeleteProfile(profile) => {
                 if profile != "Default" && self.state.profiles.contains(&profile) {
-                    self.state.profiles.retain(|p| p != &profile);
-                    if self.state.current_profile == profile {
-                        self.state.current_profile = "Default".to_string();
-                    }
+                    let profile_clone = profile.clone();
+                    let config_for_async = self.state.config.clone();
+                    let config_for_callback = self.state.config.clone();
+                    
+                    return Command::perform(
+                        async move {
+                            let mut config_guard = config_for_async.lock().await;
+                            if let Err(e) = crate::profiles::remove_profile(&mut config_guard, &profile_clone).await {
+                                eprintln!("Failed to remove profile: {}", e);
+                            }
+                        },
+                        move |_| AppMessage::LoadConfig(config_for_callback.clone())
+                    );
                 }
             }
             AppMessage::SaveSettings => {
-                println!("Settings saved!");
+                let config_path = self.config_path.clone();
+                let state = self.state.clone();
+                
+                return Command::perform(
+                    async move {
+                        let mut config_guard = state.config.lock().await;
+                        
+                        // Update config with state values
+                        config_guard.hotkey.key_combination = state.hotkey.clone();
+                        // Update other settings here as needed
+                        
+                        if let Err(e) = config_guard.save(&config_path) {
+                            eprintln!("Failed to save config: {}", e);
+                        }
+                        
+                        AppMessage::LoadConfig(state.config.clone())
+                    },
+                    |msg| msg
+                );
             }
             AppMessage::ResetSettings => {
                 // Make a copy of the existing config
@@ -123,7 +175,23 @@ impl Application for App {
             }
             AppMessage::LoadConfig(config) => {
                 // Update State with loaded config
-                self.state = State::new(config);
+                self.state = State::new(config.clone());
+                
+                // Load the actual settings values
+                return Command::perform(
+                    async move {
+                        let mut state = State::new(config.clone());
+                        if let Err(e) = state.load().await {
+                            eprintln!("Failed to load settings: {}", e);
+                        }
+                        state
+                    },
+                    |state| {
+                        let message = AppMessage::LoadConfig(state.config.clone());
+                        // Update the app state with the loaded state
+                        message
+                    }
+                );
             }
         }
         Command::none()
