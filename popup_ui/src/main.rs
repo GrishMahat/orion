@@ -16,8 +16,7 @@ mod state;
 
 use state::AppState;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     // Initialize logging
     let proj_dirs = directories::ProjectDirs::from("", "", "orion")
         .context("Failed to get project directories")?;
@@ -54,13 +53,24 @@ async fn main() -> Result<()> {
     if let Some(parent) = std::path::Path::new(&server_addr).parent() {
         std::fs::create_dir_all(parent)?;
     }
-
+    
+    // Create a tokio runtime for async tasks
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    
+    // Use a global variable to store the runtime
+    let _rt_guard = rt.enter();
+    
     // Start the Iced application
-    OrionApp::run(Settings::with_flags(OrionSettings {
+    let result = OrionApp::run(Settings::with_flags(OrionSettings {
         server_addr,
         flags: (),
-    }))
-    .map_err(|e| anyhow::anyhow!("Failed to run application: {}", e))
+    }));
+    
+    // Convert the result
+    result.map_err(|e| anyhow::anyhow!("Failed to run application: {}", e))
 }
 
 struct OrionSettings {
@@ -135,32 +145,40 @@ impl Application for OrionApp {
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
         match message {
             AppMessage::UiMessage(ui_msg) => {
-                let should_search = self.state.update_search_ui(ui_msg);
+                match ui_msg {
+                    ui::Message::CloseRequested => {
+                        // Close directly without async operations
+                        return window::close(window::Id::MAIN);
+                    }
+                    _ => {
+                        let should_search = self.state.update_search_ui(ui_msg);
 
-                if should_search {
-                    if let Some(query) = self.state.get_search_query() {
-                        let ipc_client = self.ipc_client.clone();
-                        return Command::perform(
-                            async move {
-                                let mut client = ipc_client.lock().await;
-                                let message = models::IpcMessage::SearchQuery(query);
-                                client.send_message_async(&message).await?;
+                        if should_search {
+                            if let Some(query) = self.state.get_search_query() {
+                                let ipc_client = self.ipc_client.clone();
+                                return Command::perform(
+                                    async move {
+                                        let mut client = ipc_client.lock().await;
+                                        let message = models::IpcMessage::SearchQuery(query);
+                                        client.send_message_async(&message).await?;
 
-                                // Wait for response
-                                let response = client.receive_message_async().await?;
-                                Ok::<_, anyhow::Error>(response)
-                            },
-                            |result| match result {
-                                Ok(models::IpcMessage::SearchResponse(response)) => {
-                                    AppMessage::SearchCompleted(response.results)
-                                }
-                                Ok(msg) => AppMessage::IpcMessage(msg),
-                                Err(e) => {
-                                    logging::error(&format!("IPC error: {}", e));
-                                    AppMessage::SearchCompleted(vec![])
-                                }
+                                        // Wait for response
+                                        let response = client.receive_message_async().await?;
+                                        Ok::<_, anyhow::Error>(response)
+                                    },
+                                    |result| match result {
+                                        Ok(models::IpcMessage::SearchResponse(response)) => {
+                                            AppMessage::SearchCompleted(response.results)
+                                        }
+                                        Ok(msg) => AppMessage::IpcMessage(msg),
+                                        Err(e) => {
+                                            logging::error(&format!("IPC error: {}", e));
+                                            AppMessage::SearchCompleted(vec![])
+                                        }
+                                    }
+                                );
                             }
-                        );
+                        }
                     }
                 }
 
@@ -216,6 +234,8 @@ impl Application for OrionApp {
             }
             AppMessage::CloseRequested => {
                 logging::info("Close requested, exiting...");
+                
+                // Close window directly, no async operations needed
                 window::close(window::Id::MAIN)
             }
             AppMessage::IpcMessage(msg) => {

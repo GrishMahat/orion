@@ -1,35 +1,61 @@
-# System Architecture
+# Orion - System Architecture
 
-## Core Components
+## 🏗️ Core Components
 
-### Background Service (background/)
-- `hotkey.rs` → Global hotkey detection and management
-- `process.rs` → Process lifecycle and IPC handling
-- `main.rs` → Service initialization and event loop
+### 🔄 Background Service (`background/`)
+| File | Description |
+|------|-------------|
+| `hotkey.rs` | Global hotkey detection and management |
+| `process.rs` | Process lifecycle and IPC handling |
+| `setup.rs` | Configuration setup and initialization |
+| `main.rs` | Service initialization and event loop |
 
-### Popup Interface (popup_ui/)
-- `ui.rs` → Search interface and result display
-- `commands.rs` → Command parsing and execution
-- `state.rs` → UI state management
-- `main.rs` → Window management and IPC client
+### 🔍 Popup Interface (`popup_ui/`)
+| File | Description |
+|------|-------------|
+| `ui.rs` | Search interface and result display |
+| `commands.rs` | Command parsing and execution |
+| `state.rs` | UI state management |
+| `main.rs` | Window management and IPC client |
 
-### Settings Application (settings_app/)
-- `ui.rs` → Configuration interface
-- `state.rs` → Settings state management
-- `profiles.rs` → Profile management
-- `main.rs` → Settings window
+### ⚙️ Settings Application (`settings_app/`)
+| File | Description |
+|------|-------------|
+| `ui.rs` | Configuration interface |
+| `state.rs` | Settings state management |
+| `profiles.rs` | Profile management |
+| `main.rs` | Settings window |
 
-### Shared Library (shared/)
-- `config.rs` → Configuration management
-- `models.rs` → Common data structures
-- `ipc.rs` → Inter-process communication
-- `logging.rs` →  orion log
-## Communication Architecture
+### 📚 Shared Library (`shared/`)
+| File | Description |
+|------|-------------|
+| `config.rs` | Configuration management |
+| `models.rs` | Common data structures |
+| `ipc.rs` | Inter-process communication |
+| `logging.rs` | Logging services |
+
+## 🔄 Communication Architecture
 
 ### IPC Implementation
-- Background ↔ Popup: Unix domain sockets for low-latency communication
-- Background ↔ Settings: TCP localhost for configuration updates
-- Shared message types and protocols defined in `shared/ipc.rs`
+- **Background ↔ Popup**: Unix domain sockets for low-latency communication
+- **Background ↔ Settings**: TCP localhost for configuration updates
+- **Shared message types** and protocols defined in `shared/ipc.rs`
+
+```
+┌────────────┐      IPC      ┌────────────┐
+│ Background │◄─────Unix─────►│   Popup   │
+│  Service   │     Socket    │     UI     │
+└────────────┘               └────────────┘
+       ▲                           
+       │                           
+       │ IPC                       
+       │ TCP                       
+       ▼                           
+┌────────────┐                     
+│  Settings  │                     
+│    App     │                     
+└────────────┘                     
+```
 
 ### Configuration Management
 - TOML-based configuration files
@@ -37,30 +63,30 @@
 - Profile-based settings support
 - Configuration validation and migration
 
-## System Workflow
+## 🔄 System Workflow
 
-1. System Initialization
-   - Background service starts at system boot
-   - Loads configuration and initializes IPC
-   - Registers global hotkey
+### 1. System Initialization
+- Background service starts at system boot
+- Loads configuration and initializes IPC
+- Registers global hotkey
 
-2. Hotkey Detection
-   - Monitors system-wide keyboard events
-   - Matches against configured hotkey combinations
-   - Triggers popup interface
+### 2. Hotkey Detection
+- Monitors system-wide keyboard events
+- Matches against configured hotkey combinations
+- Triggers popup interface
 
-3. Popup Interface
-   - Launches or focuses existing window
-   - Handles search input and command execution
-   - Manages command history and suggestions
+### 3. Popup Interface
+- Launches or focuses existing window
+- Handles search input and command execution
+- Manages command history and suggestions
 
-4. Settings Management
-   - Provides configuration interface
-   - Supports multiple profiles
-   - Live configuration updates
-   - Configuration backup and restore
+### 4. Settings Management
+- Provides configuration interface
+- Supports multiple profiles
+- Live configuration updates
+- Configuration backup and restore
 
-## Error Handling
+## 🛡️ Error Handling
 - Graceful degradation on IPC failures
 - Automatic service recovery
 - User-friendly error reporting

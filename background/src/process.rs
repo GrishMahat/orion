@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use shared::{ipc, models, logging};
-use std::process::{Command, Child};
+use std::process::{Command, Child, Stdio};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::time::Duration;
@@ -13,15 +13,28 @@ pub struct ProcessManager {
     ipc_client: Arc<Mutex<ipc::IpcClient>>,
     max_retries: u32,
     retry_delay: Duration,
+    executable_paths: Vec<String>,
 }
 
 impl ProcessManager {
     pub fn new(server_addr: &str) -> Result<Self> {
+        // List of possible locations for the popup_ui executable
+        let executable_paths = vec![
+            "popup_ui".to_string(),                       // In PATH
+            "./popup_ui".to_string(),                     // Current directory
+            "./target/release/popup_ui".to_string(),      // Release build
+            "./target/debug/popup_ui".to_string(),        // Debug build
+            "../target/release/popup_ui".to_string(),     // Workspace release build
+            "../target/debug/popup_ui".to_string(),       // Workspace debug build
+            "./dist/bin/popup_ui".to_string(),            // Distribution directory
+        ];
+
         Ok(ProcessManager {
             popup_process: Arc::new(Mutex::new(None)),
             ipc_client: Arc::new(Mutex::new(ipc::IpcClient::new(server_addr)?)),
             max_retries: 3,
             retry_delay: Duration::from_millis(500),
+            executable_paths,
         })
     }
 
@@ -44,25 +57,22 @@ impl ProcessManager {
                 }
             };
 
-            // Try to find the popup_ui executable in several locations
-            let executable_paths = [
-                "popup_ui".to_string(),                       // In PATH
-                "./popup_ui".to_string(),                     // Current directory
-                "./target/release/popup_ui".to_string(),      // Release build
-                "./target/debug/popup_ui".to_string(),        // Debug build
-                "./dist/bin/popup_ui".to_string(),            // Distribution directory
-            ];
-
             logging::info(&format!("Trying to start popup_ui with socket: {}", ipc_addr));
 
             let mut success = false;
-            for path in &executable_paths {
+            let mut last_error = None;
+
+            for path in &self.executable_paths {
                 logging::info(&format!("Trying to start from path: {}", path));
 
-                match Command::new(path)
+                let result = Command::new(path)
                     .arg(&ipc_addr)  // Pass the socket path as an argument
-                    .spawn()
-                {
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn();
+
+                match result {
                     Ok(child) => {
                         *process = Some(child);
                         logging::info(&format!("Popup UI process started successfully from {}", path));
@@ -71,12 +81,17 @@ impl ProcessManager {
                     }
                     Err(e) => {
                         logging::warn(&format!("Failed to start from {}: {}", path, e));
+                        last_error = Some(e);
                     }
                 }
             }
 
             if !success {
-                return Err(anyhow::anyhow!("Failed to start popup UI from any known location"));
+                let err_msg = match last_error {
+                    Some(e) => format!("Failed to start popup UI: {}", e),
+                    None => "Failed to start popup UI from any known location".to_string(),
+                };
+                return Err(anyhow::anyhow!(err_msg));
             }
 
             // Wait for process to initialize
@@ -94,8 +109,16 @@ impl ProcessManager {
         if let Some(mut child) = process.take() {
             logging::info("Stopping popup UI process");
 
-            child.kill()
-                .with_context(|| "Failed to kill popup UI")?;
+            // Try to terminate gracefully first
+            match child.kill() {
+                Ok(_) => {
+                    logging::info("Sent kill signal to popup UI process");
+                },
+                Err(e) => {
+                    // Process might have already terminated
+                    logging::warn(&format!("Failed to kill popup UI process: {}", e));
+                }
+            }
 
             match child.wait() {
                 Ok(status) => {
@@ -140,7 +163,6 @@ impl ProcessManager {
         }
     }
 
-    #[allow(dead_code)]
     pub async fn receive_message(&self) -> Result<models::IpcMessage> {
         let mut retries = 0;
         let mut client = self.ipc_client.lock().await;
@@ -169,12 +191,11 @@ impl ProcessManager {
         }
     }
 
-    #[allow(dead_code)]
     pub async fn restart_popup(&self) -> Result<()> {
         logging::info("Restarting popup UI process");
 
         self.stop_popup().await?;
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(300)).await;
         self.start_popup().await?;
 
         logging::info("Popup UI process restarted successfully");

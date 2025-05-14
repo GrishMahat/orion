@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
 use directories::ProjectDirs;
-use shared::config::Config;
+use shared::{config::Config, logging};
 
 const BANGS_URL: &str = "https://gist.githubusercontent.com/GrishMahat/9500aa4a883650d21bc428abf1adb0d7/raw/723868e88db267fada918f8143e55cca36d10e97/bangs.json";
 
@@ -30,26 +30,38 @@ pub async fn setup_config() -> Result<()> {
 
         // Save the default config
         default_config.save(&config_path)?;
-        println!("Created default config at: {}", config_path.display());
+        logging::info(&format!("Created default config at: {}", config_path.display()));
     }
 
-    // Download bangs.json if it doesn't exist
+    // Handle bangs.json setup
     let bangs_path = config_dir.join("bangs.json");
     if !bangs_path.exists() {
-        println!("Downloading bangs.json...");
-        match download_bangs(&bangs_path).await {
-            Ok(_) => println!("Downloaded bangs.json to: {}", bangs_path.display()),
-            Err(e) => {
-                println!("Failed to download bangs.json: {}", e);
-                // Create an empty bangs.json file as fallback
-                fs::write(&bangs_path, "{}")?;
-                println!("Created empty bangs.json at: {}", bangs_path.display());
+        logging::info("Setting up bangs.json file...");
+        
+        // First, try to use local version in the project directory
+        let local_bangs_path = PathBuf::from("bangs.json");
+        
+        if local_bangs_path.exists() {
+            // Copy the local file to config directory
+            logging::info(&format!("Copying local bangs.json to: {}", bangs_path.display()));
+            fs::copy(&local_bangs_path, &bangs_path)?;
+        } else {
+            // Download from remote if local doesn't exist
+            logging::info("Downloading bangs.json from remote source...");
+            match download_bangs(&bangs_path).await {
+                Ok(_) => logging::info(&format!("Downloaded bangs.json to: {}", bangs_path.display())),
+                Err(e) => {
+                    logging::error(&format!("Failed to download bangs.json: {}", e));
+                    // Create an empty bangs.json file as fallback
+                    fs::write(&bangs_path, "[]")?;
+                    logging::warn(&format!("Created empty bangs.json at: {}", bangs_path.display()));
+                }
             }
         }
     }
 
-    println!("Configuration setup complete!");
-    println!("Config directory: {}", config_dir.display());
+    logging::info("Configuration setup complete!");
+    logging::info(&format!("Config directory: {}", config_dir.display()));
 
     Ok(())
 }
@@ -62,7 +74,7 @@ async fn download_bangs(path: &PathBuf) -> Result<()> {
     // Save the file
     fs::write(path, content)?;
 
-    println!("bangs.json downloaded and saved to: {}", path.display());
+    logging::info(&format!("bangs.json downloaded and saved to: {}", path.display()));
 
     Ok(())
 }

@@ -4,7 +4,7 @@ use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::io::{Read, Write};
 use std::time::Duration;
-use tokio::net::{TcpStream as TokioTcpStream, UnixListener, UnixStream as TokioUnixStream};
+use tokio::net::{TcpStream as TokioTcpStream, UnixListener};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use std::sync::Arc;
@@ -226,7 +226,7 @@ impl IpcClient {
             IpcClientStream::Tcp(stream) => {
                 stream.peer_addr().ok().map(|addr| addr.to_string())
             },
-            IpcClientStream::Unix(stream) => {
+            IpcClientStream::Unix(_stream) => {
                 // For Unix sockets, we don't have a direct way to get the path
                 // but we can return a best guess based on what we connected to
                 None

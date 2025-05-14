@@ -93,13 +93,39 @@ async fn main() -> Result<()> {
             logging::error(&format!("IPC server error: {:?}", e));
         }
     });
+    
+    // Extract hotkey configuration
+    let hotkey_config = {
+        let cfg = config.lock().await;
+        // Create a copy of the HotkeyConfig
+        shared::config::HotkeyConfig {
+            key_combination: cfg.hotkey.key_combination.clone(),
+            modifiers: cfg.hotkey.modifiers.clone(),
+        }
+    };
 
+    // Parse modifier keys from config
+    let mut modifiers = Vec::new();
+    for modifier in &hotkey_config.modifiers {
+        match modifier.as_str() {
+            "Alt" => modifiers.push(rdev::Key::Alt),
+            "Ctrl" => modifiers.push(rdev::Key::ControlLeft),
+            "Shift" => modifiers.push(rdev::Key::ShiftLeft),
+            "Meta" | "Super" => modifiers.push(rdev::Key::MetaLeft),
+            _ => logging::warn(&format!("Unknown modifier key: {}", modifier)),
+        }
+    }
+
+    // Parse the main key from the key_combination string (just using Space as default for now)
+    // A more robust implementation would parse the actual key from the combination
+    let trigger_key = rdev::Key::Space;
+    
     // Set up hotkey listener
     let config_clone = config.clone();
     let process_manager_clone = process_manager.clone();
     hotkey_manager.start_listening(
-        &[rdev::Key::ControlLeft, rdev::Key::Alt],
-        rdev::Key::Space,
+        &modifiers,
+        trigger_key,
         move || {
             let config = config_clone.clone();
             let process_manager = process_manager_clone.clone();
@@ -282,34 +308,65 @@ async fn handle_command(
     match cmd.action {
         models::Action::OpenFile(path) => {
             logging::info(&format!("Opening file: {:?}", path));
-            if cfg!(target_os = "windows") {
-                Command::new("explorer").arg(path).spawn()?;
-            } else if cfg!(target_os = "macos") {
-                Command::new("open").arg(path).spawn()?;
-            } else {
-                Command::new("xdg-open").arg(path).spawn()?;
+            
+            #[cfg(target_os = "windows")]
+            let result = Command::new("explorer").arg(&path).spawn();
+            
+            #[cfg(target_os = "macos")]
+            let result = Command::new("open").arg(&path).spawn();
+            
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            let result = Command::new("xdg-open").arg(&path).spawn();
+            
+            match result {
+                Ok(_) => logging::info(&format!("Successfully opened file: {:?}", path)),
+                Err(e) => {
+                    logging::error(&format!("Failed to open file {:?}: {}", path, e));
+                    return Err(anyhow::anyhow!("Failed to open file: {}", e));
+                }
             }
         }
         models::Action::ExecuteCommand(command) => {
             logging::info(&format!("Executing command: {}", command));
-            if cfg!(target_os = "windows") {
-                Command::new("cmd").arg("/C").arg(command).spawn()?;
-            } else {
-                Command::new("sh").arg("-c").arg(command).spawn()?;
+            
+            #[cfg(target_os = "windows")]
+            let result = Command::new("cmd").arg("/C").arg(&command).spawn();
+            
+            #[cfg(not(target_os = "windows"))]
+            let result = Command::new("sh").arg("-c").arg(&command).spawn();
+            
+            match result {
+                Ok(_) => logging::info(&format!("Successfully executed command: {}", command)),
+                Err(e) => {
+                    logging::error(&format!("Failed to execute command {}: {}", command, e));
+                    return Err(anyhow::anyhow!("Failed to execute command: {}", e));
+                }
             }
         }
         models::Action::OpenUrl(url) => {
             logging::info(&format!("Opening URL: {}", url));
-            if cfg!(target_os = "windows") {
-                Command::new("explorer").arg(url).spawn()?;
-            } else if cfg!(target_os = "macos") {
-                Command::new("open").arg(url).spawn()?;
-            } else {
-                Command::new("xdg-open").arg(url).spawn()?;
+            
+            #[cfg(target_os = "windows")]
+            let result = Command::new("explorer").arg(&url).spawn();
+            
+            #[cfg(target_os = "macos")]
+            let result = Command::new("open").arg(&url).spawn();
+            
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            let result = Command::new("xdg-open").arg(&url).spawn();
+            
+            match result {
+                Ok(_) => logging::info(&format!("Successfully opened URL: {}", url)),
+                Err(e) => {
+                    logging::error(&format!("Failed to open URL {}: {}", url, e));
+                    return Err(anyhow::anyhow!("Failed to open URL: {}", e));
+                }
             }
         }
-        models::Action::Custom(_) => {
-            logging::warn("Custom actions not implemented yet");
+        models::Action::Custom(data) => {
+            logging::info(&format!("Handling custom action with data: {:?}", data));
+            // Implement custom action handling as needed
+            logging::warn("Custom actions support is limited");
         }
     }
 
